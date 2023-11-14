@@ -3,7 +3,7 @@
 This is a [plasTeX](https://github.com/plastex/plastex/) plugin allowing
 to write blueprints for Lean 4 projects.
 
-Needs graphviz and its deve libraries.
+Needs graphviz and its dev libraries.
 `sudo apt install graphviz libgraphviz-dev`
 
 ## Migration from Lean 3

@@ -1924,10 +1924,6 @@
         return node;
     }
 
-    /* This file is excluded from coverage because the intrumented code
-     * translates "self" which gives a reference error.
-     */
-
     /* istanbul ignore next */
 
     function workerCodeBody(port) {

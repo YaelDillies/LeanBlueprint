@@ -8,12 +8,6 @@ dep_graph_tpl: template file for dependency graph, relative to the current
 directory
 dep_by: optional level for dependency graph generation, for instance chapter or part.
         The default value is to generate one graph for the whole document
-coverage_tpl: template file for coverage report, relative to the current
-directory
-coverage_target: coverage report output file (relative to global output
-directory)
-coverage_thms: list of theorem environment covered, separated by +
-coverage_sectioning: coverage report section grouping
 
 showmore: enable buttons showing or hiding proofs.
 
@@ -256,10 +250,8 @@ class DeclReport():
 
 class PartialReport():
     """Report on formalization status for part of a blueprint."""
-    def __init__(self, title, nb_thms, nb_not_covered, thm_reports):
+    def __init__(self, title, nb_thms, thm_reports):
         self.nb_thms = nb_thms
-        self.nb_not_covered = nb_not_covered
-        self.coverage = int(100 * (nb_thms - nb_not_covered) / nb_thms if nb_thms else 100)
         self.thm_reports = thm_reports
         self.title = title
         self.define_next = [thm for thm in thm_reports
@@ -271,18 +263,11 @@ class PartialReport():
         self.prove_next = [thm for thm in thm_reports
                            if thm.kind != 'definition' and thm.stated and
                            not thm.proved and thm.can_prove]
-        if self.coverage == 100:
-            self.status = 'ok'
-        elif self.coverage > 0:
-            self.status = 'partial'
-        else:
-            self.status = 'void'
 
     @classmethod
     def from_section(cls, section, thm_types):
         """Create a PartialReport from a document section."""
         nb_thms = 0
-        nb_not_covered = 0
         thm_reports = []
         theorems = []
         for thm_type in thm_types:
@@ -290,13 +275,8 @@ class PartialReport():
         for thm in sorted(theorems, key=lambda x: str(x.ref).split('.')):
             nb_thms += 1
             thm_report = DeclReport.from_thm(thm)
-            if thm_report.kind == 'definition':
-                if not thm_report.stated:
-                    nb_not_covered += 1
-            elif not thm_report.proved:
-                nb_not_covered += 1
             thm_reports.append(thm_report)
-        return cls(section.fullTocEntry, nb_thms, nb_not_covered, thm_reports)
+        return cls(section.fullTocEntry, nb_thms, thm_reports)
 
 
 class Report():
@@ -306,9 +286,6 @@ class Report():
         """Constructor for Report"""
         self.partials = partials
         self.nb_thms = sum([p.nb_thms for p in partials])
-        self.nb_not_covered = sum([p.nb_not_covered for p in partials])
-        self.coverage = 100 * (self.nb_thms - self.nb_not_covered) / self.nb_thms \
-                        if self.nb_thms else 100
 
 def find_proved_thm(proof) -> Optional[Environment]:
     """From a proof node, try to find the statement."""
@@ -436,39 +413,16 @@ def ProcessOptions(options, document):
 
     cb = PackagePreCleanupCB(data=make_graph_html)
     css = PackageCss(path=STATIC_DIR/'dep_graph.css', copy_only=True)
-    css2 = PackageCss(path=STATIC_DIR/'style_coverage.css', copy_only=True)
     js = [PackageJs(path=STATIC_DIR/name, copy_only=True)
           for name in ['d3.min.js', 'hpcc.min.js', 'd3-graphviz.js',
-                       'expatlib.wasm', 'graphvizlib.wasm', 'coverage.js']]
+                       'expatlib.wasm', 'graphvizlib.wasm']]
 
     document.addPackageResource([cb, css, css2] + js)
-
-    ## Coverage
-    default_tpl_path = PKG_DIR.parent/'templates'/'coverage.html'
-    cov_tpl_path = options.get('coverage_tpl', default_tpl_path)
-    try:
-        cov_tpl = Template(cov_tpl_path.read_text())
-    except IOError:
-        log.warning('Coverage template read error, using default template')
-        cov_tpl = Template(default_tpl_path.read_text())
-
-
-    coverage_target = options.get('coverage_target', 'coverage.html')
-    outfile = (Path(outdir)/coverage_target).absolute()
 
     thm_types = [thm.strip()
                  for thm in options.get('coverage_thms', DEFAULT_TYPES).split('+')]
     document.userdata['thm_types'] = thm_types
     section = options.get('coverage_sectioning', 'chapter')
-
-    def makeCoverageReport(document):
-        sections = document.getElementsByTagName(section)
-        report = Report([PartialReport.from_section(sec, thm_types) for sec in sections])
-        cov_tpl.stream(report=report,
-                       config=document.config,
-                       terms=document.context.terms).dump(outfile.open('w+'))
-        return [outfile]
-    document.addPackageResource(PackagePreCleanupCB(data=makeCoverageReport))
 
 
     if 'showmore' in options:

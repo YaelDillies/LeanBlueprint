@@ -1,4 +1,4 @@
-import Lean
+import LeanBlueprint.LeanContext
 
 open Lean Elab System
 
@@ -36,23 +36,23 @@ partial def resolveDeclsAux (fileMap : FileMap) (acc : Array DeclDetails := #[])
 def resolveDecls (fileMap : FileMap) (trees : Array InfoTree) : IO (Array DeclDetails) := do
   trees.foldlM (init := #[]) (resolveDeclsAux fileMap ·) 
 
-def analyzeInput (file : System.FilePath) : IO <| Array DeclDetails := do
+def analyzeInput (file lakeFile : System.FilePath) : IO <| Array DeclDetails := do
   let fileContents ← IO.FS.readFile file
   let fileMap := FileMap.ofString fileContents 
   -- Parse the header of the provided file
   let context := Parser.mkInputContext fileContents file.toString
   let (header, state, messages) ← Parser.parseHeader context
   -- Load the imports
-  -- initializeLakeContext lakeFile header
+  initializeLakeContext lakeFile header
   let (environment, messages) ← processHeader header {} messages context 0
   if messages.hasErrors then
     for msg in messages.toList do
       if msg.severity == .error then
-        IO.throwServerError <| ← msg.toString
+        IO.throwServerError =<< msg.toString
   -- Process the remaining file
   let commandState := { Command.mkState environment messages with infoState := { enabled := true } }
   let s ← IO.processCommands context state commandState
   -- Resolve the list of declarations from the file's infotrees
   resolveDecls fileMap s.commandState.infoState.trees.toArray
 
-#eval analyzeInput "./LeanBlueprint/Test.lean"
+#eval analyzeInput "./LeanBlueprint/Test.lean" "./lakefile.lean"

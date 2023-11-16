@@ -6,7 +6,7 @@ deriving instance ToJson, FromJson for Lean.Position
 
 structure DeclDetails where
   declName : Name
-  pos : Lean.Position
+  pos : Position
   hasSorry : Bool
 deriving ToJson, FromJson, Repr
 
@@ -46,20 +46,17 @@ def analyzeInput (file : System.FilePath) : IO <| Array DeclDetails := do
   -- Parse the header of the provided file
   let context := Parser.mkInputContext fileContents file.toString
   let (header, state, messages) ← Parser.parseHeader context
-  let context' := Parser.mkInputContext fileContents file.toString
   -- Load the imports
   -- initializeLakeContext lakeFile header
-  let options := Options.empty |>.setBool `trace.Elab.info true |>.setBool `tactic.simp.trace true
-  let (environment, messages) ← processHeader header options messages context' 0
+  let (environment, messages) ← processHeader header {} messages context 0
   if messages.hasErrors then
     for msg in messages.toList do
       if msg.severity == .error then
         IO.throwServerError <| ← msg.toString
   -- Process the remaining file
   let commandState := { Command.mkState environment messages with infoState := { enabled := true } }
-  let s ← IO.processCommands context' state commandState
+  let s ← IO.processCommands context state commandState
   -- Resolve the list of declarations from the file's infotrees
-  let result ← resolveDecls fileMap s.commandState.infoState.trees.toArray
-  return result
+  resolveDecls fileMap s.commandState.infoState.trees.toArray
 
 #eval analyzeInput "./LeanBlueprint/Test.lean"

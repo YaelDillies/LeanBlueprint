@@ -2,7 +2,7 @@ import Lean
 
 open Lean Elab System
 
-deriving instance ToJson, FromJson for Lean.Position
+deriving instance ToJson, FromJson for Position
 
 structure DeclDetails where
   declName : Name
@@ -16,26 +16,22 @@ def extractId (stx : Syntax) : Option Name := do
   let id ← declId.getHead?
   return id.getId
 
-partial def resolveDeclsAux (fileMap : FileMap) (aux : Array DeclDetails := #[]) : InfoTree → IO (Array DeclDetails)
-  | .context _ctx tree => resolveDeclsAux fileMap aux tree
+partial def resolveDeclsAux (fileMap : FileMap) (acc : Array DeclDetails := #[]) : InfoTree → IO (Array DeclDetails)
+  | .context _ctx tree => resolveDeclsAux fileMap acc tree
   | tree@(.node info children) => do
-    let childLeaves ← children.toArray.foldlM (init := aux) (resolveDeclsAux fileMap ·)
-    let hasSorry ← tree.hasSorry 
-    match info with
-      | .ofCommandInfo cmdInfo => 
-        if cmdInfo.elaborator == `Lean.Elab.Command.elabDeclaration then
-          let decl := cmdInfo.stx
-          let declDetails : Option DeclDetails := do
-            let id ← extractId decl
-            let pos ← decl.getPos? true
-            return ⟨id, fileMap.toPosition pos, hasSorry⟩
-          match declDetails with
-          | some declDetails => return childLeaves.push declDetails
-          | none => return childLeaves
-        else
-          return childLeaves
-      | _ => return childLeaves
-  | _ => return aux
+    let childLeaves ← children.toArray.foldlM (init := acc) (resolveDeclsAux fileMap ·)
+    let hasSorry ← tree.hasSorry
+    let declDetails? : Option DeclDetails := do
+      let .ofCommandInfo cmdInfo := info | none
+      guard <| cmdInfo.elaborator == `Lean.Elab.Command.elabDeclaration
+      let decl := cmdInfo.stx
+      let id ← extractId decl
+      let pos ← decl.getPos? true
+      return ⟨id, fileMap.toPosition pos, hasSorry⟩
+    match declDetails? with
+    | some declDetails => return childLeaves.push declDetails
+    | none => return childLeaves
+  | _ => return acc
 
 def resolveDecls (fileMap : FileMap) (trees : Array InfoTree) : IO (Array DeclDetails) := do
   trees.foldlM (init := #[]) (resolveDeclsAux fileMap ·) 

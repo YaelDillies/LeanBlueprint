@@ -2,17 +2,11 @@ import Lean
 
 open Lean Elab System
 
-instance : ToJson String.Pos where
-  toJson pos := toJson pos.byteIdx 
-
-instance : FromJson String.Pos where
-  fromJson? jsn := do
-    let n : Nat ← fromJson? jsn
-    return ⟨n⟩ 
+deriving instance ToJson, FromJson for Lean.Position
 
 structure DeclDetails where
   declName : Name
-  pos : String.Pos
+  pos : Lean.Position
   hasSorry : Bool
 deriving ToJson, FromJson, Repr
 
@@ -22,10 +16,10 @@ def extractId (stx : Syntax) : Option Name := do
   let id ← declId.getHead?
   return id.getId
 
-partial def resolveDeclsAux (aux : Array DeclDetails := #[]) : InfoTree → IO (Array DeclDetails)
-  | .context _ctx tree => resolveDeclsAux aux tree
+partial def resolveDeclsAux (fileMap : FileMap) (aux : Array DeclDetails := #[]) : InfoTree → IO (Array DeclDetails)
+  | .context _ctx tree => resolveDeclsAux fileMap aux tree
   | tree@(.node info children) => do
-    let childLeaves ← children.toArray.foldlM (init := aux) (resolveDeclsAux ·)
+    let childLeaves ← children.toArray.foldlM (init := aux) (resolveDeclsAux fileMap ·)
     let hasSorry ← tree.hasSorry 
     match info with
       | .ofCommandInfo cmdInfo => 
@@ -34,7 +28,7 @@ partial def resolveDeclsAux (aux : Array DeclDetails := #[]) : InfoTree → IO (
           let declDetails : Option DeclDetails := do
             let id ← extractId decl
             let pos ← decl.getPos? true
-            return ⟨id, pos, hasSorry⟩
+            return ⟨id, fileMap.toPosition pos, hasSorry⟩
           match declDetails with
           | some declDetails => return childLeaves.push declDetails
           | none => return childLeaves
@@ -43,11 +37,12 @@ partial def resolveDeclsAux (aux : Array DeclDetails := #[]) : InfoTree → IO (
       | _ => return childLeaves
   | _ => return aux
 
-def resolveDecls (trees : Array InfoTree) : IO (Array DeclDetails) := do
-  trees.foldlM (init := #[]) (resolveDeclsAux ·) 
+def resolveDecls (fileMap : FileMap) (trees : Array InfoTree) : IO (Array DeclDetails) := do
+  trees.foldlM (init := #[]) (resolveDeclsAux fileMap ·) 
 
 def analyzeInput (file : System.FilePath) : IO <| Array DeclDetails := do
   let fileContents ← IO.FS.readFile file
+  let fileMap := FileMap.ofString fileContents 
   -- Parse the header of the provided file
   let context := Parser.mkInputContext fileContents file.toString
   let (header, state, messages) ← Parser.parseHeader context
@@ -64,9 +59,7 @@ def analyzeInput (file : System.FilePath) : IO <| Array DeclDetails := do
   let commandState := { Command.mkState environment messages with infoState := { enabled := true } }
   let s ← IO.processCommands context' state commandState
   -- Resolve the list of declarations from the file's infotrees
-  let result ← resolveDecls s.commandState.infoState.trees.toArray
+  let result ← resolveDecls fileMap s.commandState.infoState.trees.toArray
   return result
 
-#eval show IO _ from do
-  let result ← analyzeInput "./LeanBlueprint/Test.lean"
-  return result
+#eval analyzeInput "./LeanBlueprint/Test.lean"
